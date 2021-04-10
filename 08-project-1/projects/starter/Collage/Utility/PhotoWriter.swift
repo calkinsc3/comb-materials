@@ -29,13 +29,85 @@
 import Foundation
 import UIKit
 import Photos
-
 import Combine
 
+typealias urlSessionResponse = (Data, URLResponse, Error) -> Void
+
 class PhotoWriter {
-  enum Error: Swift.Error {
-    case couldNotSavePhoto
-    case generic(Swift.Error)
-  }
-  
+    enum Error: Swift.Error {
+        case couldNotSavePhoto
+        case generic(Swift.Error)
+    }
+    
+    static func save(_ image: UIImage) -> Future<String, PhotoWriter.Error> {
+        return Future { resolve in
+            do {
+                try PHPhotoLibrary.shared().performChangesAndWait {
+                    let request = PHAssetChangeRequest.creationRequestForAsset(from: image) //1
+                    guard let savedAssetID = request.placeholderForCreatedAsset?.localIdentifier else { //2
+                        return resolve(.failure(.couldNotSavePhoto))
+                    }
+                    resolve(.success(savedAssetID)) //3
+                }
+            } catch {
+                resolve(.failure(.generic(error)))
+            }
+        }
+    }
+    
+    func getNetworkData<D:Decodable>(url: URLRequest) -> Future<D, PublisherError> {
+        
+        return Future { resolve in
+            
+            let dataTask = URLSession.shared.dataTask(with: url) { (data, response, error) in
+                do {
+                    guard let data = data,
+                          let response = response as? HTTPURLResponse else {
+                        return resolve(.failure(.network(description: "Could not unwrap data or response")))
+                    }
+                    if response.statusCode == 200 {
+                        let decoder = JSONDecoder()
+                        let decoded = try decoder.decode(D.self, from: data)
+                        
+                        resolve(.success(decoded))
+                        
+                    } else {
+                        return resolve(.failure(.network(description: "Non 200 response code: \(response) \(error?.localizedDescription ?? "")")))
+                    }
+                    
+                } catch {
+                    resolve(.failure(.parsing(description: "Could not decode given type: Error: \(error)")))
+                }
+            }
+            dataTask.resume()
+            
+        }
+        
+    }
+    
+}
+
+enum PublisherError: Swift.Error, CustomStringConvertible {
+    
+    case network(description: String)
+    case parsing(description: String)
+    case unknown
+    
+    var description: String {
+        switch self {
+        case .network: return "A network error occured."
+        case .parsing: return "A parsing error occured."
+        case .unknown: return "An unknown error occured."
+        }
+    }
+    
+    init(_ error: Swift.Error) {
+        switch error {
+        case is URLError: self = .network(description: error.localizedDescription)
+        case is DecodingError: self = .parsing(description: error.localizedDescription)
+        default:
+            self = error as? PublisherError ?? .unknown
+        }
+    }
+    
 }
