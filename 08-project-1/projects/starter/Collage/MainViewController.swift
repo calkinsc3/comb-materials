@@ -96,27 +96,44 @@ class MainViewController: UIViewController {
     }
     
     @IBAction func actionAdd() {
-//        let newImages = images.value + [UIImage(named: "IMG_1907.jpg")!]
-//        images.send(newImages)
         let photos = storyboard!.instantiateViewController(identifier: "PhotosViewController") as! PhotosViewController
         
+        photos.$selectedPhotosCount
+            .filter({ $0 > 0})
+            .map({"Selected \($0) photos"})
+            .assign(to: \.title, on: self)
+            .store(in: &subscriptions)
+        
         let newPhotos = photos.selectedPhotos
-        newPhotos
+            .prefix(while: {[unowned self] _ in
+                return self.images.value.count < 6
+            })
+            .share() //allows for 2 subs
+        
+        newPhotos //sub2
             .map({[unowned self] newImage in
                 return self.images.value + [newImage] //1
             })
             .assign(to: \.value, on: images) //2
             .store(in: &subscriptions) //3
         
+        newPhotos //sub2
+            .ignoreOutput()
+            .delay(for: 2.0, scheduler: DispatchQueue.main)
+            .sink(receiveCompletion: { [unowned self] _ in
+                self.updateUI(photos: self.images.value)
+            }, receiveValue: { _ in
+                
+            })
+            .store(in: &subscriptions)
+        
         navigationController!.pushViewController(photos, animated: true)
         
     }
     
     private func showMessage(_ title: String, description: String? = nil) {
-        let alert = UIAlertController(title: title, message: description, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "Close", style: .default, handler: { alert in
-            self.dismiss(animated: true, completion: nil)
-        }))
-        present(alert, animated: true, completion: nil)
+        alert(title: title, text: description)
+            .sink(receiveValue: {_ in })
+            .store(in: &subscriptions)
     }
 }
